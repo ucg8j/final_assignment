@@ -1,0 +1,90 @@
+---
+title: "Prediction Assignment"
+author: "Luke Singham"
+date: "26 June 2016"
+output: html_document
+---
+
+# Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Download Data
+Data is downloaded from the links provided.
+```{r}
+knitr::opts_chunk$set(cache=TRUE)
+
+# links
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# set working dir and seed
+setwd("~/Downloads/")
+set.seed(123)
+
+# download files
+test.name  <- "pml-testing.csv"
+train.name <- "pml-training.csv"
+if (!file.exists(test.name)) {
+    download.file(url = urlTrain, destfile = "pml-training.csv")
+}
+if (!file.exists(train.name)) {
+    download.file(url = urlTest, destfile = "pml-testing.csv")
+}
+
+# read files (testing assigned as "raw.validation" set)
+raw.training    <- read.csv("pml-training.csv", na.strings = c("#DIV/0!", "NA"))
+raw.validation  <- read.csv("pml-testing.csv", na.strings = c("#DIV/0!", "NA"))
+```
+
+# Prepare data
+A partition is created from the training data to assist 
+with model selection, much like the structure of the netflix competition, we treat the 20 cases as 
+validation.
+```{r, message=FALSE}
+library(dplyr)  # data munging
+library(caret)  # machine learning
+
+# remove cols with NA
+raw.training <- raw.training[, apply(raw.training, 2, function(x) !any(is.na(x)))]
+
+# remove unnecessary columns for prediction
+rmCols       <- c("X","user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", 
+                  'new_window', 'num_window')
+raw.training <- select(raw.training, -one_of(rmCols))
+
+# create test set
+inTrain  <- createDataPartition(y=raw.training$classe, p=0.6, list=FALSE)
+training <- raw.training[inTrain, ]
+testing  <- raw.training[-inTrain, ]
+```
+
+
+# Model Build
+We use cross validation in the training control argument of the random forest model and single vector machine (SVM)
+build.  
+```{r, message=FALSE}
+control   <- trainControl(method="cv", number=5, allowParallel=T, verbose=T)
+rf.model  <- train(classe~., data=training, method="rf", trControl=control, verbose=F)
+svm.model <- train(classe~., data=training, method="rf", trControl=control, verbose=F)
+```
+
+# Model Performance (Out-of-Sample Accuracy)
+From the two models built, random forest and SVM, we compare the accuracy on the test set and select
+the model with the best performance. Both models perform well, with the SVM performing slightly better.
+```{r}
+# rf accuracy
+rf.pred <- predict(rf.model, newdata=testing)
+confusionMatrix(rf.pred, testing$classe)
+sum(rf.pred == testing$classe) / length(rf.pred)
+
+# svm accuracy
+svm.pred <- predict(svm.model, newdata=testing)
+confusionMatrix(svm.pred, testing$classe)
+sum(svm.pred == testing$classe) / length(svm.pred)
+```
+
+# Predict 20 different test case
+We now predict the answers for the 20 validation cases for the quiz.
+```{r}
+answers <- predict(svm.model, newdata=raw.validation)
+```
